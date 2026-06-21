@@ -16,6 +16,7 @@ release/
 models/
 
 # 运行 / 开发产物
+COMMIT_MSG.txt
 *.log
 *.part
 run.log

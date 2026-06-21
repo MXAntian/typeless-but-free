@@ -56,6 +56,7 @@ DEFAULTS = {
     "language": None,                     # None=自动检测；想锁中文填 "zh"
     "cleanup_enabled": True,              # AI 润色开关；关掉则直接用原始转写（也无需 key）
     "streaming_partial": True,            # 录音时实时显示转写（边说边看）
+    "vocabulary": [],                     # 常用词/专名，提升识别敏感度（如 CLAUDE.md / agent / MCP）
     "llm_base_url": "https://api.deepseek.com",   # 任意 OpenAI 兼容端点（DeepSeek/OpenAI/本地…）
     "llm_model": "deepseek-v4-flash",             # 该端点的模型名
     "llm_api_key": "",                            # 填你自己的 key（留空且无 env → 跳过润色）
@@ -275,7 +276,7 @@ class Transcriber:
         self.model = WhisperModel(model_ref, device="cpu", compute_type="int8")
         print("[stt] CPU 就绪 [OK]")
 
-    def transcribe(self, audio_f32, initial_prompt=None):
+    def transcribe(self, audio_f32, initial_prompt=None, hotwords=None):
         lang = self.cfg["language"]
         segments, info = self.model.transcribe(
             audio_f32,
@@ -283,6 +284,7 @@ class Transcriber:
             vad_filter=True,
             beam_size=self.cfg.get("beam_size", 1),
             initial_prompt=initial_prompt or None,
+            hotwords=hotwords or None,
         )
         text = "".join(seg.text for seg in segments).strip()
         return text, getattr(info, "language", lang)
@@ -425,6 +427,8 @@ class App:
         self._model_lock = threading.Lock()   # 串行化 partial / final 转写，避免并发撞模型
         self._stream_stop = False
         self._context = ""   # 上一句识别结果，作为下次的 initial_prompt 提准
+        self._vocab_str = " ".join(cfg.get("vocabulary") or [])  # 常用词 → hotwords
+        self._tray = None
         self.debug = bool(os.environ.get("VOICETYPE_DEBUG"))
 
     # --- 录音起停 ---
@@ -456,7 +460,8 @@ class App:
                         break
                     segs, _ = self.transcriber.model.transcribe(
                         audio, language=self.cfg["language"], vad_filter=False,
-                        beam_size=1, initial_prompt=self._context or None)
+                        beam_size=1, initial_prompt=self._context or None,
+                        hotwords=self._vocab_str or None)
                     partial = "".join(s.text for s in segs).strip()
                 if partial and not self._stream_stop:
                     self.ui_queue.put(("partial", partial))
@@ -572,7 +577,7 @@ class App:
         try:
             self._post(("status", "识别中…", self.C["amber"]))
             with self._model_lock:
-                raw, lang = self.transcriber.transcribe(audio, self._context)
+                raw, lang = self.transcriber.transcribe(audio, self._context, self._vocab_str or None)
             print(f"[stt] [{lang}] {raw}")
             if not raw:
                 self._post(("status", "没听清，再说一次", self.C["sub"]))
@@ -616,7 +621,58 @@ class App:
 
         self._banner()
         self._poll()
+        self._start_tray()
+        if getattr(sys, "frozen", False):
+            self.root.after(800, self._hide_console)  # 下载完、就绪后藏掉控制台
         self.root.mainloop()
+
+    def _hide_console(self):
+        if sys.platform != "win32":
+            return
+        try:
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+        except Exception:
+            pass
+
+    def _start_tray(self):
+        try:
+            import pystray
+            from PIL import Image, ImageDraw
+        except Exception:
+            return  # 没装 pystray（如源码 dev）就不上托盘，不影响主功能
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.ellipse((14, 14, 50, 50), fill="#7c8cff")
+        d.ellipse((27, 27, 37, 37), fill="#ffffff")
+
+        def on_quit(icon, item):
+            icon.stop()
+            try:
+                self.root.after(0, self._quit_app)
+            except Exception:
+                self._quit_app()
+
+        menu = pystray.Menu(
+            pystray.MenuItem(APP_NAME, None, enabled=False),
+            pystray.MenuItem("退出 Quit", on_quit),
+        )
+        self._tray = pystray.Icon("typeless", img, APP_NAME, menu)
+        threading.Thread(target=self._tray.run, daemon=True).start()
+
+    def _quit_app(self):
+        try:
+            if self._listener:
+                self._listener.stop()
+        except Exception:
+            pass
+        try:
+            self.root.quit()
+            self.root.destroy()
+        except Exception:
+            pass
+        os._exit(0)
 
     def _banner(self):
         key = self.cfg["hotkey"].upper()
@@ -1036,7 +1092,7 @@ def run_settings(cfg, _preview_png=None):
     root = tk.Tk()
     root.title(f"{APP_NAME} · 设置")
     root.configure(bg=C["card"])
-    root.geometry("470x690")
+    root.geometry("470x700")
     try:
         root.attributes("-topmost", True)
         root.eval('tk::PlaceWindow . center')
@@ -1045,25 +1101,25 @@ def run_settings(cfg, _preview_png=None):
 
     def label(t):
         tk.Label(root, text=t, bg=C["card"], fg=C["sub"], anchor="w",
-                 font=("Microsoft YaHei UI", 9)).pack(fill="x", padx=24, pady=(10, 2))
+                 font=("Microsoft YaHei UI", 9)).pack(fill="x", padx=24, pady=(6, 1))
 
     def entry(initial, show=None):
         e = tk.Entry(root, show=show, bg=C["field"], fg=C["fg"], insertbackground=C["accent"],
                      relief="flat", font=("Microsoft YaHei UI", 11))
         e.insert(0, "" if initial is None else str(initial))
-        e.pack(fill="x", padx=24, ipady=6)
+        e.pack(fill="x", padx=24, ipady=4)
         return e
 
     def combo(value, options):
         var = tk.StringVar(value=value)
         cb = ttk.Combobox(root, textvariable=var, state="readonly", values=options)
-        cb.pack(fill="x", padx=24, ipady=2)
+        cb.pack(fill="x", padx=24, ipady=1)
         return var
 
     tk.Label(root, text=APP_NAME, bg=C["card"], fg=C["fg"],
-             font=("Microsoft YaHei UI", 17, "bold")).pack(anchor="w", padx=24, pady=(20, 0))
+             font=("Microsoft YaHei UI", 16, "bold")).pack(anchor="w", padx=24, pady=(12, 0))
     tk.Label(root, text="填好下面几项就能用。不想用 AI 润色就把 Key 留空（纯本地）。",
-             bg=C["card"], fg=C["muted"], font=("Microsoft YaHei UI", 9)).pack(anchor="w", padx=24)
+             bg=C["card"], fg=C["muted"], font=("Microsoft YaHei UI", 9)).pack(anchor="w", padx=24, pady=(0, 2))
 
     label("AI 润色 API Key（OpenAI 兼容；留空 = 关闭润色，纯本地）")
     e_key = entry(cfg.get("llm_api_key", ""), show="•")
@@ -1082,6 +1138,12 @@ def run_settings(cfg, _preview_png=None):
     e_lang = entry(cfg.get("language") or "")
     label("模型下载源（中国大陆改 https://hf-mirror.com）")
     e_hf = entry(cfg.get("hf_endpoint", "https://huggingface.co"))
+    label("常用词 / 专名（每行或逗号分隔一个，让这些词识别更准）")
+    t_vocab = tk.Text(root, height=2, bg=C["field"], fg=C["fg"], insertbackground=C["accent"],
+                      relief="flat", bd=0, font=("Microsoft YaHei UI", 11), padx=8, pady=6,
+                      highlightthickness=1, highlightbackground=C["border"], highlightcolor=C["accent"])
+    t_vocab.pack(fill="x", padx=24)
+    t_vocab.insert("1.0", "\n".join(cfg.get("vocabulary") or []))
 
     out = {"cfg": None}
 
@@ -1094,6 +1156,8 @@ def run_settings(cfg, _preview_png=None):
         cfg["whisper_device"] = v_dev.get()
         cfg["language"] = e_lang.get().strip() or None
         cfg["hf_endpoint"] = e_hf.get().strip() or "https://huggingface.co"
+        raw_vocab = t_vocab.get("1.0", "end-1c").replace("，", "\n").replace(",", "\n")
+        cfg["vocabulary"] = [w.strip() for w in raw_vocab.splitlines() if w.strip()]
         cfg["cleanup_enabled"] = bool(cfg["llm_api_key"])
         CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
         out["cfg"] = cfg
@@ -1115,7 +1179,7 @@ def run_settings(cfg, _preview_png=None):
 
     if _preview_png:  # 仅供截图预览/测试
         root.update_idletasks()
-        for _ in range(20):
+        for _ in range(60):
             root.update()
             time.sleep(0.02)
         x, y = root.winfo_rootx(), root.winfo_rooty()

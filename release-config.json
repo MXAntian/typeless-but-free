@@ -10,6 +10,7 @@
   "beam_size": 1,
   "cleanup_enabled": true,
   "streaming_partial": true,
+  "vocabulary": [],
   "confirm_before_insert": false,
   "llm_base_url": "https://api.deepseek.com",
   "llm_model": "deepseek-v4-flash",
