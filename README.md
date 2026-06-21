@@ -1,6 +1,9 @@
-# VoiceType
+# Typeless but Free
+
+English · [中文](README.zh-CN.md)
 
 **Local, private, hold‑to‑talk voice dictation with AI cleanup — for Windows.**
+*Like Typeless — but free & open source.*
 
 Hold a hotkey, talk, release. Your speech is transcribed **on your own machine**
 (faster‑whisper / CUDA), optionally cleaned up by an LLM (filler‑word removal,
