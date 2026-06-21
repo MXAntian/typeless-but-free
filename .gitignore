@@ -1,0 +1,36 @@
+# 本地私有配置（含你自己的 key / 路径）—— 永不提交
+config.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# PyInstaller 构建产物
+build/
+dist/
+release/
+*.spec
+
+# 下载的 Whisper 模型（很大）
+models/
+
+# 运行 / 开发产物
+*.log
+*.part
+run.log
+run.err.log
+_demo.wav
+preview*.png
+codex-logs/
+plan-*.md
+
+# 开发 / 验证脚本（不进公开 repo）
+smoke_test.py
+demo_run.py
+preview_*.py
+combo_test.py
+timing_test.py
+turbo_fetch.py
+stream_test.py
+*_test.py

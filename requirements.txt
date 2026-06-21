@@ -1,0 +1,17 @@
+# 核心
+faster-whisper>=1.0.3
+sounddevice>=0.4.6
+numpy>=1.24
+pynput>=1.7.6
+pyperclip>=1.8.2
+requests>=2.31
+
+# GPU 依赖（CUDA 12，给 3070 Ti 用）。cublas 依赖 cuda_runtime 的 cudart64_12.dll。
+# cudnn 其实 ctranslate2 自带了，留着也无妨。没 GPU 可删这几行，程序自动退回 CPU(int8)。
+nvidia-cublas-cu12
+nvidia-cuda-runtime-cu12
+nvidia-cudnn-cu12
+
+# 注意：huggingface_hub 会自动带 hf-xet，但它在国内镜像/部分网络下会把模型的
+# 小文件（config/tokenizer/vocab）下成 0 字节 → 加载报 JSON 解析错。
+# 装完务必卸掉它（setup.ps1 已自动处理）：  pip uninstall -y hf-xet
