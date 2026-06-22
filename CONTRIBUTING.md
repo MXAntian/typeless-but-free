@@ -6,7 +6,7 @@ are both fine（中英文都欢迎）.
 
 ## Reporting bugs / requesting features
 
-Open an [issue](https://github.com/MXAntian/typeless-but-free/issues). For bugs, please include:
+Open an [issue](https://github.com/AgentGameLab/typeless-but-free/issues). For bugs, please include:
 
 - OS + Python version (`python --version`)
 - GPU or CPU, and your `whisper_model` / `whisper_device`

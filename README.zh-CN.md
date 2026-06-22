@@ -21,7 +21,7 @@
 
 ## 直接下载用（不想碰代码）
 
-去 [Releases](https://github.com/MXAntian/typeless-but-free/releases) 下 Windows 免安装包，
+去 [Releases](https://github.com/AgentGameLab/typeless-but-free/releases) 下 Windows 免安装包，
 解压双击 `TypelessButFree.exe`，首次弹设置窗填 Key（或留空纯本地）即可用。
 
 ## 功能
@@ -42,7 +42,7 @@
 ## 从源码安装
 
 ```powershell
-git clone https://github.com/MXAntian/typeless-but-free voicetype
+git clone https://github.com/AgentGameLab/typeless-but-free voicetype
 cd voicetype
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
