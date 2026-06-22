@@ -54,6 +54,7 @@ DEFAULTS = {
     "whisper_device": "cuda",             # cuda | cpu | auto（auto=cuda 失败自动退 cpu）
     "whisper_compute_type": "float16",    # cuda 用 float16；cpu 会自动改 int8
     "language": None,                     # None=自动检测；想锁中文填 "zh"
+    "simplify_chinese": True,             # 中文路繁→简（whisper 偶发漂繁体）；要繁体设 false
     "cleanup_enabled": True,              # AI 润色开关；关掉则直接用原始转写（也无需 key）
     "streaming_partial": True,            # 录音时实时显示转写（边说边看）
     "vocabulary": [],                     # 常用词/专名，提升识别敏感度（如 CLAUDE.md / agent / MCP）
@@ -293,7 +294,23 @@ class Transcriber:
             hotwords=hotwords or None,
         )
         text = "".join(seg.text for seg in segments).strip()
-        return text, getattr(info, "language", lang)
+        detected = getattr(info, "language", lang)
+        return maybe_simplify(text, detected, self.cfg), detected
+
+
+# ────────────────────────── 繁→简 ──────────────────────────
+def maybe_simplify(text, detected_lang, cfg):
+    """中文路把繁体转简体（whisper/LLM 偶发漂繁体）。仅中文路，避免误伤日文汉字。"""
+    if not text or not cfg.get("simplify_chinese", True):
+        return text
+    lang = str(cfg.get("language") or detected_lang or "")
+    if not lang.startswith("zh"):
+        return text
+    try:
+        import zhconv
+        return zhconv.convert(text, "zh-cn")
+    except Exception:
+        return text
 
 
 # ────────────────────────── AI 润色 ──────────────────────────
@@ -471,11 +488,12 @@ class App:
                 with self._model_lock:
                     if self._stream_stop:
                         break
-                    segs, _ = self.transcriber.model.transcribe(
+                    segs, sinfo = self.transcriber.model.transcribe(
                         audio, language=self.cfg["language"], vad_filter=False,
                         beam_size=1, initial_prompt=self._context or None,
                         hotwords=self._vocab_str or None)
                     partial = "".join(s.text for s in segs).strip()
+                    partial = maybe_simplify(partial, getattr(sinfo, "language", None), self.cfg)
                 if partial and not self._stream_stop:
                     self.ui_queue.put(("partial", partial))
             except Exception as e:
@@ -624,6 +642,7 @@ class App:
                 cleaned = cleanup_text(raw, self.cfg, self.api_key)
             else:
                 cleaned = raw
+            cleaned = maybe_simplify(cleaned, lang, self.cfg)  # 润色后再保一道（LLM 也可能漂繁体）
             if self.cfg.get("confirm_before_insert", False):
                 self._post(("hide", 0))
                 self._post(("confirm", self.target_hwnd, raw, cleaned))

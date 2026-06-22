@@ -73,6 +73,7 @@ transcript inserted directly (keeps filler words, but nothing leaves your machin
 | `whisper_model` | `large-v3-turbo` | `large-v3` (most accurate) · `large-v3-turbo` (≈2× faster, ~same) · `medium`/`small`/`tiny` (faster, less accurate) |
 | `whisper_device` | `auto` | `auto` / `cuda` / `cpu` (`auto`+`cuda` fall back to CPU if no GPU) |
 | `language` | `null` | auto‑detect; set `"zh"` / `"en"` to lock |
+| `simplify_chinese` | `true` | convert Traditional → Simplified on the Chinese path (Whisper sometimes drifts to Traditional); set `false` if you want Traditional |
 | `beam_size` | `1` | `1` fastest; raise to `5` for marginally better accuracy |
 | `cleanup_enabled` | `true` | LLM cleanup on/off (off = raw transcript, no key needed) |
 | `confirm_before_insert` | `false` | `true` = show an editable popup before inserting |

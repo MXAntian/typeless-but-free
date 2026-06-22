@@ -77,6 +77,7 @@ copy config.example.json config.json
 | `whisper_model` | `large-v3-turbo` | `large-v3`（最准）· `large-v3-turbo`（约 2× 快，质量相近）· `medium`/`small`/`tiny`（更快、较不准） |
 | `whisper_device` | `auto` | `auto` / `cuda` / `cpu`（`auto`+`cuda` 无显卡时退回 CPU） |
 | `language` | `null` | 自动检测；填 `"zh"` / `"en"` 锁定 |
+| `simplify_chinese` | `true` | 中文路繁→简（Whisper 偶发漂繁体）；想要繁体设 `false` |
 | `beam_size` | `1` | `1` 最快；调到 `5` 略微更准 |
 | `cleanup_enabled` | `true` | LLM 润色开关（关 = 原始转写，无需 Key） |
 | `confirm_before_insert` | `false` | `true` = 插入前弹可编辑确认窗 |

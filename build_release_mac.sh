@@ -9,7 +9,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip -q
 # Mac 不用 nvidia-* 那几个包（无 mac wheel），只装核心依赖
-pip install -q faster-whisper sounddevice numpy pynput pyperclip requests pystray pillow pyinstaller
+pip install -q faster-whisper sounddevice numpy pynput pyperclip requests pystray pillow zhconv pyinstaller
 pip uninstall -y hf-xet 2>/dev/null || true   # 同 Windows：hf-xet 会把模型小文件下成 0 字节
 
 echo "[2/4] PyInstaller 构建 ..."
@@ -17,7 +17,7 @@ pyinstaller --noconfirm --clean --name "TypelessButFree" \
   --collect-all faster_whisper --collect-all ctranslate2 \
   --collect-all onnxruntime --collect-all tokenizers \
   --collect-all av --collect-all sounddevice \
-  --collect-all pystray --collect-all PIL \
+  --collect-all pystray --collect-all PIL --collect-all zhconv \
   --exclude-module nvidia --exclude-module torch \
   voicetype.py
 
