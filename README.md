@@ -26,6 +26,7 @@ Hold ALT+V → speak → release → local Whisper → (optional) LLM cleanup
 - **Live preview** — see the transcription grow in real time while you talk.
 - **AI cleanup (optional)** — any OpenAI‑compatible endpoint (DeepSeek, OpenAI, a local LLM…). Bring your own key, or turn it off.
 - **Auto‑insert** — pastes into the focused window; no copy‑paste dance.
+- **Learns from your fixes** — click the lingering card to correct a word; it remembers the fix (replacement rule + adds the term to hotwords) so it gets it right next time. 100% local.
 - **Configurable hotkey** — hold‑to‑talk, double‑tap toggle, single key or chord (e.g. `alt+v`, `ctrl_r`, `caps_lock`).
 - **Pure Python + tkinter** UI — dark, rounded, animated waveform that reacts to your mic volume.
 
@@ -78,6 +79,8 @@ transcript inserted directly (keeps filler words, but nothing leaves your machin
 | `cleanup_enabled` | `true` | LLM cleanup on/off (off = raw transcript, no key needed) |
 | `confirm_before_insert` | `false` | `true` = show an editable popup before inserting |
 | `streaming_partial` | `true` | live transcription while recording |
+| `linger_ms` | `4000` | how long the bottom‑right card stays after inserting — click it within this window to fix/teach a word |
+| `max_display_lines` | `4` | cap the card to N lines (older text scrolls off the top) |
 | `vocabulary` | `[]` | terms to recognize more reliably, e.g. `["CLAUDE.md","agent"]` (also editable in the settings UI) |
 | `insert_suffix` | `""` | text appended after each insert (`" "` space / `"\n"` newline; avoid newline in chat apps) |
 | `restore_clipboard` | `true` | restore your previous clipboard after inserting |

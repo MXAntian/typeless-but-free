@@ -71,6 +71,9 @@ DEFAULTS = {
     "silence_rms_threshold": 0.005,       # 没识别到内容且音量低于此 → 提示检查麦克风
     "beam_size": 1,                       # 1=最快；想更准可调 5（慢一点）
     "confirm_before_insert": False,       # False=直接插入；True=弹窗确认再插
+    "linger_ms": 4000,                    # 插入后浮窗停留时长（这期间点它可展开纠错）
+    "max_display_lines": 4,               # 浮窗最多显示几行（超出截早先内容，保最后 N 行）
+    "corrections_file": "corrections.json",  # 学到的「误听→正确」替换表（本地）
     "self_download": True,                # 用 requests 直连下载模型（绕开 hf hub 的 Xet 0 字节 bug）
     "models_dir": None,                   # 模型存放目录；None=<脚本目录>/models
     "hf_endpoint": "https://hf-mirror.com",   # 国内镜像；海外直连可改 "https://huggingface.co"
@@ -313,6 +316,100 @@ def maybe_simplify(text, detected_lang, cfg):
         return text
 
 
+# ────────────────────────── 纠错飞轮（本地学习）──────────────────────────
+def _corrections_path(cfg):
+    p = cfg.get("corrections_file", "corrections.json")
+    return p if os.path.isabs(p) else str(HERE / p)
+
+
+def load_corrections(cfg):
+    """读本地替换表 [{from,to}]，返回 [(from,to)]（长 from 优先，避免子串先替换）。"""
+    try:
+        p = Path(_corrections_path(cfg))
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8-sig"))
+            rules = [(d["from"], d["to"]) for d in data if d.get("from") and d.get("to")]
+            return sorted(rules, key=lambda r: -len(r[0]))
+    except Exception:
+        pass
+    return []
+
+
+def apply_corrections(text, rules):
+    for frm, to in rules:
+        if frm and frm in text:
+            text = text.replace(frm, to)
+    return text
+
+
+def save_correction(cfg, frm, to):
+    """学一条「误听 frm → 正确 to」；from 已存在则更新。返回是否写入。"""
+    frm, to = (frm or "").strip(), (to or "").strip()
+    if not frm or not to or frm == to or len(frm) > 30:
+        return False
+    try:
+        p = Path(_corrections_path(cfg))
+        data = json.loads(p.read_text(encoding="utf-8-sig")) if p.exists() else []
+        for d in data:
+            if d.get("from") == frm:
+                d["to"] = to
+                break
+        else:
+            data.append({"from": frm, "to": to})
+        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except Exception as e:
+        print("[corrections] 保存失败:", e)
+        return False
+
+
+def add_vocab_term(cfg, term):
+    """把专名加进 vocabulary 并落盘 config（喂下次 hotwords）。返回是否新增。"""
+    term = (term or "").strip()
+    if not term or len(term) > 30:
+        return False
+    vocab = list(cfg.get("vocabulary") or [])
+    if term in vocab:
+        return False
+    vocab.append(term)
+    cfg["vocabulary"] = vocab
+    try:
+        CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+    return True
+
+
+# ────────────────────────── 行数估算（4 行封顶）──────────────────────────
+def _wrap_lines(text, width_px):
+    """估算文本在给定像素宽下的换行行数（CJK≈18px / ASCII≈8px @13pt）。"""
+    lines, cur = 1, 0
+    for ch in text:
+        if ch == "\n":
+            lines += 1
+            cur = 0
+            continue
+        w = 18 if ord(ch) > 0x2e80 else 8
+        if cur + w > width_px:
+            lines += 1
+            cur = w
+        else:
+            cur += w
+    return lines
+
+
+def cap_tail_lines(text, max_lines, width_px):
+    """只保留最后 max_lines 行：超出则从头截、加 … 前缀。"""
+    if not text or _wrap_lines(text, width_px) <= max_lines:
+        return text
+    s = text
+    while len(s) > 4:
+        s = s[6:]
+        if _wrap_lines("…" + s, width_px) <= max_lines:
+            return "…" + s
+    return text
+
+
 # ────────────────────────── AI 润色 ──────────────────────────
 def cleanup_text(raw, cfg, api_key):
     if not cfg["cleanup_enabled"] or not raw or not api_key:
@@ -451,6 +548,10 @@ class App:
         self._stream_stop = False
         self._context = ""   # 上一句识别结果，作为下次的 initial_prompt 提准
         self._vocab_str = " ".join(cfg.get("vocabulary") or [])  # 常用词 → hotwords
+        self._corrections = load_corrections(cfg)  # 学到的「误听→正确」替换表
+        self._hide_job = None
+        self._last_inserted = ""   # 最近插入的成稿（编辑态 diff 学习用）
+        self._editing = False
         self._tray = None
         self.debug = bool(os.environ.get("VOICETYPE_DEBUG"))
 
@@ -494,6 +595,7 @@ class App:
                         hotwords=self._vocab_str or None)
                     partial = "".join(s.text for s in segs).strip()
                     partial = maybe_simplify(partial, getattr(sinfo, "language", None), self.cfg)
+                    partial = apply_corrections(partial, self._corrections)
                 if partial and not self._stream_stop:
                     self.ui_queue.put(("partial", partial))
             except Exception as e:
@@ -643,13 +745,16 @@ class App:
             else:
                 cleaned = raw
             cleaned = maybe_simplify(cleaned, lang, self.cfg)  # 润色后再保一道（LLM 也可能漂繁体）
+            cleaned = apply_corrections(cleaned, self._corrections)  # 应用学到的纠错规则
             if self.cfg.get("confirm_before_insert", False):
                 self._post(("hide", 0))
                 self._post(("confirm", self.target_hwnd, raw, cleaned))
             else:
                 self._insert(cleaned, self.target_hwnd)
-                self._post(("status", "已插入", self.C["green"]))
-                self._post(("hide", 900))
+                self._last_inserted = cleaned
+                self._post(("status", "已插入 · 点窗口可改", self.C["green"]))
+                self._post(("partial", cleaned))
+                self._post(("hide", self.cfg.get("linger_ms", 4000)))
         finally:
             self.busy = False
 
@@ -771,7 +876,12 @@ class App:
                 elif kind == "partial":
                     self._set_partial(msg[1])
                 elif kind == "hide":
-                    self.root.after(msg[1], self._hide_indicator)
+                    if self._hide_job:
+                        try:
+                            self.root.after_cancel(self._hide_job)
+                        except Exception:
+                            pass
+                    self._hide_job = self.root.after(msg[1], self._hide_indicator)
                 elif kind == "confirm":
                     self._hide_indicator()
                     self._show_popup(msg[1], msg[2], msg[3])
@@ -805,8 +915,10 @@ class App:
         C = self.C
         W = 456
         PAD = 10
-        BASE_H = 146
+        self._max_lines = max(1, int(self.cfg.get("max_display_lines", 4)))
+        BASE_H = 110 + self._max_lines * 24   # 封顶 N 行的固定高度
         transparent = "#ff00ff"
+        self._ind_full_text = ""
         self._BASE_W, self._BASE_H = W, BASE_H
         self._ind_h = BASE_H
         self._ind_pill = C["card_2"]
@@ -833,6 +945,7 @@ class App:
 
         canvas = tk.Canvas(iw, width=W, height=BASE_H, bd=0, highlightthickness=0, bg=self._ind_bg)
         canvas.pack(fill="both", expand=True)
+        canvas.bind("<Button-1>", lambda e: self._open_edit())  # 点浮窗 → 纠错
 
         ids = {}
         ids["pulse"] = canvas.create_oval(34, 32, 50, 48, outline=C["red"], width=2, state="hidden")
@@ -1009,13 +1122,10 @@ class App:
 
     def _set_partial(self, text):
         self._ensure_indicator()
-
-        text = text or ""
-        display = text if len(text) <= 160 else "…" + text[-158:]
+        self._ind_full_text = text or ""        # 完整文本（编辑态用）
+        display = cap_tail_lines(self._ind_full_text, self._max_lines, self._BASE_W - 56)
         self._ind_partial_text = display
         self._ind_canvas.itemconfigure(self._ind_ids["partial"], text=display)
-
-        self._resize_to_content()
         self._show_ind()
 
     def _hide_indicator(self):
@@ -1056,6 +1166,126 @@ class App:
                 self._ind_fade_job = None
 
         fade(0.98)
+
+    # ── 纠错态：点浮窗展开可编辑，改完学成规则 ──
+    def _open_edit(self):
+        if self._editing or self.recorder.recording or self.busy:
+            return
+        if not (self._last_inserted or "").strip():
+            return
+        self._editing = True
+        if self._hide_job:
+            try:
+                self.root.after_cancel(self._hide_job)
+            except Exception:
+                pass
+            self._hide_job = None
+        self._hide_indicator()
+
+        tk = self.tk
+        C = self.C
+        original = self._last_inserted
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg=C["border"])
+        W, H = 600, 300
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry(f"{W}x{H}+{(sw - W) // 2}+{int(sh * 0.3)}")
+        card = tk.Frame(win, bg=C["card"])
+        card.pack(fill="both", expand=True, padx=1, pady=1)
+        tk.Label(card, text="纠错 · 改完自动学会（下次自动认对）", bg=C["card"], fg=C["fg"],
+                 font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
+        tk.Label(card, text="双击选词改；保存 = 记住「听错→正确」并加进常用词",
+                 bg=C["card"], fg=C["muted"], font=("Microsoft YaHei UI", 9)).pack(anchor="w", padx=16, pady=(0, 6))
+        txt = tk.Text(card, wrap="word", height=6, font=("Microsoft YaHei UI", 13),
+                      bg=C["field"], fg=C["fg"], insertbackground=C["accent"], relief="flat", bd=0,
+                      padx=12, pady=10, highlightthickness=1, highlightbackground=C["border"],
+                      highlightcolor=C["accent"])
+        txt.pack(fill="both", expand=True, padx=16)
+        txt.insert("1.0", original)
+
+        def on_dbl(e):
+            try:
+                import jieba
+                idx = txt.index(f"@{e.x},{e.y}")
+                line, col = idx.split(".")
+                col = int(col)
+                lt = txt.get(f"{line}.0", f"{line}.end")
+                pos = 0
+                for w in jieba.cut(lt):
+                    if pos <= col < pos + len(w):
+                        txt.tag_remove("sel", "1.0", "end")
+                        txt.tag_add("sel", f"{line}.{pos}", f"{line}.{pos + len(w)}")
+                        txt.mark_set("insert", f"{line}.{pos + len(w)}")
+                        return "break"
+                    pos += len(w)
+            except Exception:
+                pass
+
+        txt.bind("<Double-Button-1>", on_dbl)
+
+        bar = tk.Frame(card, bg=C["card"])
+        bar.pack(fill="x", padx=16, pady=10)
+
+        def do_save(ev=None):
+            edited = txt.get("1.0", "end-1c")
+            win.destroy()
+            self._editing = False
+            n = self._learn_from_edit(original, edited)
+            try:
+                pyperclip.copy(edited)
+            except Exception:
+                pass
+            self._post(("status", f"已学会 {n} 条 ✓" if n else "没改动", self.C["green"]))
+            self._post(("partial", edited))
+            self._post(("hide", 1600))
+            return "break"
+
+        def do_cancel(ev=None):
+            win.destroy()
+            self._editing = False
+            return "break"
+
+        def mkbtn(text, bg, bgh, fg, cmd, bold=False):
+            b = tk.Label(bar, text=text, bg=bg, fg=fg, cursor="hand2",
+                         font=("Microsoft YaHei UI", 10, "bold" if bold else "normal"), padx=20, pady=8)
+            b.bind("<Enter>", lambda e: b.config(bg=bgh))
+            b.bind("<Leave>", lambda e: b.config(bg=bg))
+            b.bind("<Button-1>", lambda e: cmd())
+            return b
+
+        tk.Label(bar, text="Ctrl+Enter 保存 · Esc 取消", bg=C["card"], fg=C["sub"],
+                 font=("Microsoft YaHei UI", 9)).pack(side="left")
+        mkbtn("保存", C["accent"], C["accent_h"], "#ffffff", do_save, True).pack(side="right")
+        mkbtn("取消", C["btn2"], C["btn2_h"], C["fg"], do_cancel).pack(side="right", padx=(0, 10))
+        win.bind("<Control-Return>", do_save)
+        win.bind("<Escape>", do_cancel)
+        win.after(20, lambda: (win.focus_force(), txt.focus_set(), txt.mark_set("insert", "end")))
+
+    def _learn_from_edit(self, original, edited):
+        """词级 diff（jieba）抽出「听错→正确」规则，存本地 + 收进常用词。返回新学条数。"""
+        if not edited.strip() or edited == original:
+            return 0
+        try:
+            import difflib
+            n = 0
+            # 字符级 diff：对齐公共前后缀，抽出最小改动片段（比词级对音译词更准）
+            for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, original, edited, autojunk=False).get_opcodes():
+                if op == "replace":
+                    frm = original[i1:i2].strip()
+                    to = edited[j1:j2].strip()
+                    if frm and to and frm != to and len(frm) <= 30:
+                        if save_correction(self.cfg, frm, to):
+                            n += 1
+                        add_vocab_term(self.cfg, to)
+            if n:
+                self._corrections = load_corrections(self.cfg)
+                self._vocab_str = " ".join(self.cfg.get("vocabulary") or [])
+            return n
+        except Exception as e:
+            print("[learn] err:", e)
+            return 0
 
     def _show_popup(self, hwnd, raw, cleaned):
         tk = self.tk

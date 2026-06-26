@@ -8,6 +8,7 @@ requests>=2.31
 pystray>=0.19            # 系统托盘图标（退出菜单）
 pillow>=10.0             # 托盘图标绘制
 zhconv>=1.4              # 中文繁→简（whisper 偶发漂繁体）
+jieba>=0.42              # 中文分词（纠错态双击选词 + 词级 diff 学习）
 
 # GPU 依赖（CUDA 12，给 3070 Ti 用）。cublas 依赖 cuda_runtime 的 cudart64_12.dll。
 # cudnn 其实 ctranslate2 自带了，留着也无妨。没 GPU 可删这几行，程序自动退回 CPU(int8)。

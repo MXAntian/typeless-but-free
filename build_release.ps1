@@ -9,7 +9,7 @@ Write-Host "[1/4] PyInstaller 构建（排除 CUDA，保持便携）..." -Foregr
   --collect-all faster_whisper --collect-all ctranslate2 `
   --collect-all onnxruntime --collect-all tokenizers `
   --collect-all av --collect-all sounddevice `
-  --collect-all pystray --collect-all PIL --collect-all zhconv `
+  --collect-all pystray --collect-all PIL --collect-all zhconv --collect-all jieba `
   --exclude-module nvidia --exclude-module torch `
   voicetype.py | Out-Null
 

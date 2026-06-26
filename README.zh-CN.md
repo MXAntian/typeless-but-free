@@ -30,6 +30,7 @@
 - **实时预览** —— 说话时转写文字一截一截冒出来。
 - **AI 润色（可选）** —— 任意 OpenAI 兼容端点（DeepSeek / OpenAI / 本地 LLM…）。填自己的 Key，或干脆关掉。
 - **自动插入** —— 直接粘到当前焦点窗口，省掉复制粘贴。
+- **越用越准** —— 插入后点一下浮窗改词，它记住这次纠正（替换规则 + 把词加进 hotwords），下次自动认对。全本地。
 - **可配置热键** —— 按住说话 / 双击开关，单键或组合键（如 `alt+v`、`ctrl_r`、`caps_lock`）。
 - **纯 Python + tkinter** 界面 —— 暗色、圆角、声波跟着你的音量跳。
 
@@ -82,6 +83,8 @@ copy config.example.json config.json
 | `cleanup_enabled` | `true` | LLM 润色开关（关 = 原始转写，无需 Key） |
 | `confirm_before_insert` | `false` | `true` = 插入前弹可编辑确认窗 |
 | `streaming_partial` | `true` | 录音时实时转写预览 |
+| `linger_ms` | `4000` | 插入后右下角浮窗停留毫秒数——这期间点它可改词/教它认对 |
+| `max_display_lines` | `4` | 浮窗最多显示几行（早先内容滚出顶部）|
 | `vocabulary` | `[]` | 让这些词识别更准，如 `["CLAUDE.md","agent"]`（设置窗里也能填）|
 | `insert_suffix` | `""` | 每次插入后追加（`" "`空格 / `"\n"`换行；聊天框慎用换行=可能发送）|
 | `restore_clipboard` | `true` | 插入后恢复你原来的剪贴板内容 |
