@@ -916,7 +916,7 @@ class App:
         W = 456
         PAD = 10
         self._max_lines = max(1, int(self.cfg.get("max_display_lines", 4)))
-        BASE_H = 110 + self._max_lines * 24   # 封顶 N 行的固定高度
+        BASE_H = 108   # 紧凑基线（无文字）；随内容增高，最多到 max_lines 行
         transparent = "#ff00ff"
         self._ind_full_text = ""
         self._BASE_W, self._BASE_H = W, BASE_H
@@ -1125,6 +1125,11 @@ class App:
         self._ind_full_text = text or ""        # 完整文本（编辑态用）
         display = cap_tail_lines(self._ind_full_text, self._max_lines, self._BASE_W - 56)
         self._ind_partial_text = display
+        n = _wrap_lines(display, self._BASE_W - 56) if display.strip() else 0
+        H = 108 + min(self._max_lines, n) * 24   # 按实际行数收高，封顶 N 行
+        if H != self._ind_h:
+            self._ind_h = H
+            self._redraw_chrome(H)
         self._ind_canvas.itemconfigure(self._ind_ids["partial"], text=display)
         self._show_ind()
 
