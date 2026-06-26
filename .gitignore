@@ -3,6 +3,7 @@ config.json
 
 # Python
 .venv/
+.venv-mac/
 __pycache__/
 *.pyc
 

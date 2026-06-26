@@ -1,0 +1,10 @@
+# Typeless (macOS) 依赖 — 全部本地推理,无需 API key
+# 安装: python3.12 -m venv .venv-mac && .venv-mac/bin/pip install -r requirements-mac.txt
+# 需要 Apple Silicon (arm64) + ffmpeg (brew install ffmpeg)
+
+mlx-whisper      # Apple Silicon 原生本地 ASR(含 mlx 推理框架)
+sounddevice      # 麦克风录音(PortAudio)
+numpy            # 音频缓冲
+pynput           # 全局热键监听 + 模拟 Cmd+V
+rumps            # macOS 状态栏托盘
+opencc           # 繁→简转换(whisper 倾向输出繁体)
