@@ -991,9 +991,26 @@ class App:
                  fill=self._ind_pill, outline="", tags=("chrome", "status_bg"))
         canvas.tag_lower("chrome")
         canvas.coords(self._ind_ids["hint"], 28, H - 26)
-        canvas.config(height=H)
-        sw, sh = canvas.winfo_screenwidth(), canvas.winfo_screenheight()
-        self.indicator.geometry(f"{W}x{H}+{sw - W - 24}+{sh - H - 46}")
+        self._place_indicator(W, H)   # 底边钉死、往上长
+
+    def _place_indicator(self, W, H):
+        """底边固定在屏幕下方，往上长。Tk 对 overrideredirect 窗只改尺寸不重定位，
+        Windows 下用 ctypes MoveWindow 强制定位，geometry 兜底。"""
+        sw = self.indicator.winfo_screenwidth()
+        sh = self.indicator.winfo_screenheight()
+        x, y = sw - W - 24, sh - H - 46
+        placed = False
+        if sys.platform == "win32":
+            try:
+                self.indicator.update_idletasks()
+                hwnd = ctypes.windll.user32.GetAncestor(self.indicator.winfo_id(), 2)  # GA_ROOT
+                if hwnd:
+                    ctypes.windll.user32.MoveWindow(hwnd, int(x), int(y), int(W), int(H), True)
+                    placed = True
+            except Exception:
+                placed = False
+        if not placed:
+            self.indicator.geometry(f"{W}x{H}+{x}+{y}")
 
     def _resize_to_content(self):
         canvas = self._ind_canvas
